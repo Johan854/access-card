@@ -4,7 +4,7 @@
  * compte à rebours de re-verrouillage automatique, boutons d'ouverture visibles uniquement une fois débloqué,
  * avec double appui de confirmation. Style verre, thème clair/sombre automatique, éditeur visuel, textes en français.
  */
-const CARD_VERSION = "1.0.0";
+const CARD_VERSION = "1.1.0";
 
 /* === NUANCE COMMUNE v2 (cartes Johan854) ===
  * Bloc identique dans toutes les cartes. Options : nuance, nuance_perso, intensite.
@@ -37,7 +37,7 @@ const GV_FIELDS = [
 const GV_LABELS = { nuance: "Nuance de couleur", nuance_perso: "Couleur personnalisée (nuance « Personnalisée »)", intensite: "Intensité de la nuance" };
 /* === FIN NUANCE COMMUNE === */
 const DEFAULTS = { title: "Accès", theme: "auto", ...GV_DEFAULTS, accesses: [] };
-const ACC_DEFAULTS = { name: "Portail", icon: "mdi:gate", camera_entity: "", unlock_entity: "", state_entity: "", relock_minutes: 5, confirm: true, buttons: [] };
+const ACC_DEFAULTS = { name: "Portail", icon: "mdi:gate", camera_entity: "", unlock_entity: "", state_entity: "", subtitle: "", relock_minutes: 5, confirm: true, buttons: [] };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const gone = (st) => !st || st.state === "unavailable" || st.state === "unknown";
@@ -144,7 +144,8 @@ class AccessCard extends HTMLElement {
     }
     clearTimeout(this._armT); this._armed = null;
     const dom = b.entity.split(".")[0];
-    if (dom === "button") this._hass.callService("button", "press", { entity_id: b.entity });
+    if (dom === "cover" && ["open", "close", "stop"].includes(b.action)) this._hass.callService("cover", b.action + "_cover", { entity_id: b.entity });
+    else if (dom === "button") this._hass.callService("button", "press", { entity_id: b.entity });
     else if (dom === "script") this._hass.callService("script", "turn_on", { entity_id: b.entity });
     else this._hass.callService("homeassistant", "toggle", { entity_id: b.entity });
     this._fired[key] = Date.now();
@@ -197,7 +198,7 @@ class AccessCard extends HTMLElement {
       const lockUi = hasLock ? `<button class="lockbtn ${unlocked ? "open" : ""}" data-toggle="${i}" aria-label="${unlocked ? "Verrouiller" : "Débloquer"}">
           <svg viewBox="0 0 48 48"><circle class="rbg" cx="24" cy="24" r="22"/><circle class="ring" data-ring="${i}" cx="24" cy="24" r="22" transform="rotate(-90 24 24)" style="stroke-dasharray:${CIRC.toFixed(2)};stroke-dashoffset:${unlocked && rem !== null ? (CIRC * (1 - Math.max(0, Math.min(1, rem / (Number(a.relock_minutes) * 60000))))).toFixed(2) : unlocked ? "0" : "0"}"/>
           <g class="pad"><path class="shackle" d="M17 22v-5a7 7 0 0 1 14 0v5"/><rect class="pbody" x="13" y="22" width="22" height="15" rx="3.5"/><circle class="pkey" cx="24" cy="29.2" r="2"/></g></svg></button>` : `<span class="lockbtn free"><ha-icon icon="${esc(a.icon || "mdi:gate")}"></ha-icon></span>`;
-      const sub = !hasLock ? "Toujours actif" : unlocked ? (rem !== null ? `Débloqué · re-verrouillage dans <b data-cd="${i}">${mmss(rem)}</b>` : "Débloqué") : "Verrouillé";
+      const sub = !hasLock ? esc(a.subtitle || "") : unlocked ? (rem !== null ? `Débloqué · re-verrouillage dans <b data-cd="${i}">${mmss(rem)}</b>` : "Débloqué") : "Verrouillé";
       const pill = hasLock ? `<button class="pill ${unlocked ? "lock" : "unlock"}" data-toggle="${i}"><ha-icon icon="${unlocked ? "mdi:lock-outline" : "mdi:lock-open-variant-outline"}"></ha-icon>${unlocked ? "Verrouiller" : "Débloquer"}</button>` : "";
       const btns = a.buttons.map((b, j) => {
         const key = `${i}:${j}`, armed = this._armed === key, fired = !!this._fired[key];
@@ -209,7 +210,7 @@ class AccessCard extends HTMLElement {
       const body = unlocked && a.buttons.length ? `<div class="btns n${Math.min(a.buttons.length, 4)}">${btns}</div>` : "";
       return `<section class="acc glass ${unlocked ? "open" : "locked"}">
         ${a.camera_entity ? `<div class="cam" data-cam="${i}"><span class="live"><i></i>En direct</span></div>` : ""}
-        <div class="row">${lockUi}<div class="txt"><b>${esc(a.name)}</b><span class="sub">${sub}</span></div>${chip}${pill}</div>${body}</section>`;
+        <div class="row">${lockUi}<div class="txt"><b>${esc(a.name)}</b>${sub ? `<span class="sub">${sub}</span>` : ""}</div>${chip}${pill}</div>${body}</section>`;
     }).join("");
 
     this.shadowRoot.innerHTML = `<style>
@@ -266,7 +267,7 @@ class AccessCard extends HTMLElement {
 /* ---------- Éditeur visuel ---------- */
 const LABELS = { ...GV_LABELS, title: "Titre de la carte", theme: "Thème", name: "Nom de l'accès", icon: "Icône (sans cadenas)", camera_entity: "Caméra (facultatif)",
   unlock_entity: "Interrupteur de déblocage (input_boolean)", state_entity: "Capteur ouvert / fermé (facultatif)", relock_minutes: "Re-verrouillage après (minutes, 0 = jamais)",
-  confirm: "Demander une confirmation (double appui)", entity: "Entité à actionner" };
+  confirm: "Demander une confirmation (double appui)", subtitle: "Texte sous le nom (sans cadenas, facultatif)", action: "Action (entités cover)", entity: "Entité à actionner" };
 const TOP = [
   { type: "grid", name: "", schema: [{ name: "title", selector: { text: {} } },
     { name: "theme", selector: { select: { mode: "dropdown", options: [{ value: "auto", label: "Automatique" }, { value: "light", label: "Clair" }, { value: "dark", label: "Sombre" }] } } }] },
@@ -277,9 +278,11 @@ const ACC = [
   { name: "camera_entity", selector: { entity: { domain: "camera" } } },
   { name: "unlock_entity", selector: { entity: { domain: ["input_boolean", "switch"] } } },
   { name: "state_entity", selector: { entity: {} } },
+  { name: "subtitle", selector: { text: {} } },
   { type: "grid", name: "", schema: [{ name: "relock_minutes", selector: { number: { min: 0, max: 120, mode: "box" } } }, { name: "confirm", selector: { boolean: {} } }] },
 ];
-const BTN = [{ name: "entity", selector: { entity: {} } }, { type: "grid", name: "", schema: [{ name: "name", selector: { text: {} } }, { name: "icon", selector: { icon: {} } }] }];
+const BTN = [{ name: "entity", selector: { entity: {} } }, { type: "grid", name: "", schema: [{ name: "name", selector: { text: {} } }, { name: "icon", selector: { icon: {} } }] },
+  { name: "action", selector: { select: { mode: "dropdown", options: [{ value: "auto", label: "Automatique" }, { value: "open", label: "Ouvrir (volet / portail motorisé)" }, { value: "close", label: "Fermer" }, { value: "stop", label: "Stop" }] } } }];
 
 class AccessCardEditor extends HTMLElement {
   _sigOf(cfg) { return cfg.accesses.map((a) => a.buttons.length).join(",") + "/" + cfg.accesses.length; }
@@ -295,8 +298,8 @@ class AccessCardEditor extends HTMLElement {
     const cfg = { ...this._config };
     cfg.accesses = cfg.accesses.map((a) => {
       const o = { ...a };
-      ["icon", "camera_entity", "unlock_entity", "state_entity"].forEach((k) => { if (o[k] === "" || o[k] == null) delete o[k]; });
-      o.buttons = (a.buttons || []).filter((b) => b && b.entity).map((b) => { const x = { entity: b.entity }; if (b.name) x.name = b.name; if (b.icon) x.icon = b.icon; return x; });
+      ["icon", "camera_entity", "unlock_entity", "state_entity", "subtitle"].forEach((k) => { if (o[k] === "" || o[k] == null) delete o[k]; });
+      o.buttons = (a.buttons || []).filter((b) => b && b.entity).map((b) => { const x = { entity: b.entity }; if (b.name) x.name = b.name; if (b.icon) x.icon = b.icon; if (b.action && b.action !== "auto") x.action = b.action; return x; });
       return o;
     });
     this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: cfg }, bubbles: true, composed: true }));
